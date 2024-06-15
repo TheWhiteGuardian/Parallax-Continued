@@ -2,8 +2,10 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Unity.Burst;
+using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -44,8 +46,8 @@ public static class InterlockedCounters
 // Used in frustum culling
 public struct ParallaxPlane
 {
-    float3 normal;
-    float distance;
+    public readonly float3 normal;
+    public readonly float distance;
     public ParallaxPlane(float3 normal, float distance)
     {
         this.normal = normal;
@@ -57,7 +59,8 @@ public struct ParallaxPlane
         return new ParallaxPlane(plane.normal, plane.distance);
     }
     // Is this position on the positive side of the plane
-    public bool GetSide(in Vector3 pos)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool GetSide(in float3 pos)
     {
         return math.dot(pos, normal) + distance > 0;
     }
@@ -92,59 +95,39 @@ public struct SubdivideMeshJob : IJobParallelFor
     {
         tris.BeginForEachIndex(index);
 
-        int numInside = 0;
-
         // Fetch triangle
         SubdividableTriangle meshTriangle = meshTriangles[index];
 
         // Fetch world space points for frustum culling
-        float4 worldSpaceV1 = math.mul(objectToWorldMatrix, new float4(meshTriangle.v1, 1));
-        float4 worldSpaceV2 = math.mul(objectToWorldMatrix, new float4(meshTriangle.v2, 1));
-        float4 worldSpaceV3 = math.mul(objectToWorldMatrix, new float4(meshTriangle.v3, 1));
-        float centerDist = SqrDistance(target, (worldSpaceV1.xyz + worldSpaceV2.xyz + worldSpaceV3.xyz) * 0.333f);
+        float3 worldSpaceV1 = math.transform(objectToWorldMatrix, meshTriangle.v1);
+        float3 worldSpaceV2 = math.transform(objectToWorldMatrix, meshTriangle.v2);
+        float3 worldSpaceV3 = math.transform(objectToWorldMatrix, meshTriangle.v3);
+        float centerDist = math.distancesq(target, (worldSpaceV1 + worldSpaceV2 + worldSpaceV3) * 0.333f);
 
-        // Make sure all points are within the frustum
-        for (int i = 0; i < 6; i++)
+        if (Hint.Unlikely(centerDist < 1f))
         {
-            ParallaxPlane plane = cameraFrustumPlanes[i];
-            if (centerDist < 1 || plane.GetSide(worldSpaceV1.xyz) || plane.GetSide(worldSpaceV2.xyz) || plane.GetSide(worldSpaceV3.xyz))
-            {
-                numInside++;
-            }
-        }
-
-        if (numInside > 0)
-        {
-            // With reducing distance from center, level starts at maxSubdivisionLevel and goes down
+            // This triangle is so close that we definitely want to keep it.
             meshTriangle.Subdivide(ref tris, 0, target, maxSubdivisionLevel, sqrSubdivisionRange, objectToWorldMatrix);
+            tris.EndForEachIndex();
         }
         else
         {
-            tris.Write(meshTriangle);
-        }
-        tris.EndForEachIndex();
+            // Make sure all points are within the frustum
+            for (int i = 0; i < 6; i++)
+            {
+                ParallaxPlane plane = cameraFrustumPlanes[i];
 
-    }
-    float SqrDistance(in float3 d1, in float3 d2)
-    {
-        float dx = d2.x - d1.x;
-        float dy = d2.y - d1.y;
-        float dz = d2.z - d1.z;
-        return Mathf.Sqrt(dx * dx + dy * dy + dz * dz);
-    }
-    float Clamp01(in float value)
-    {
-        if (value > 1)
-        {
-            return 1;
-        }
-        else if (value < 0)
-        {
-            return 0;
-        }
-        else
-        {
-            return value;
+                if (plane.GetSide(in worldSpaceV1) || plane.GetSide(in worldSpaceV2) || plane.GetSide(in worldSpaceV3))
+                {
+                    meshTriangle.Subdivide(ref tris, 0, target, maxSubdivisionLevel, sqrSubdivisionRange, objectToWorldMatrix);
+                    tris.EndForEachIndex();
+                    return;
+                }
+            }
+
+            // Validation failed, push as is.
+            tris.Write(meshTriangle);
+            tris.EndForEachIndex();
         }
     }
 }
