@@ -5,7 +5,6 @@ using Unity.Mathematics;
 using Unity.Collections;
 using Unity.Jobs;
 using System;
-using static UnityEngine.GraphicsBuffer;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using System.Threading;
@@ -284,6 +283,8 @@ public class ParallelSubdivision : MonoBehaviour
 
         GetUniqueIdentifier();
         Initialize();
+
+        Diagnostics.Setup();
     }
     void GetUniqueIdentifier()
     {
@@ -360,7 +361,7 @@ public class ParallelSubdivision : MonoBehaviour
     bool isGeneratingMesh = false;
     bool firstRun = true;
     float time = 0;
-    void Update()
+    private void Update()
     {
         // We're done, or running for the first time, so start everything off from step 1
         if (firstRun || (!isProcessingSubdivision && !isGeneratingMesh))
@@ -390,7 +391,8 @@ public class ParallelSubdivision : MonoBehaviour
             BuildMesh();
             FreePostMeshBuildResources();
             FreePostReadbackResources();
-            Debug.Log("Time elapsed: " + ((Time.realtimeSinceStartup - time) * 1000.0f));
+            // Debug.Log("Time elapsed: " + ((Time.realtimeSinceStartup - time) * 1000.0f));
+            Diagnostics.PushTime((Time.realtimeSinceStartup - time) * 1000.0f);
         }
     }
     public void DispatchSubdivision()
