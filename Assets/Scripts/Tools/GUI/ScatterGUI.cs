@@ -23,6 +23,12 @@ public class ScatterGUI : MonoBehaviour
     {
         // Do visibility key check here
         window = GUILayout.Window(GetInstanceID(), window, DrawWindow, "Parallax GUI");
+
+        // At most the window may be 50% off-screen.
+        float halfWidth = 0.5f * window.width;
+        float halfHeight = 0.5f * window.height;
+        window.x = Mathf.Clamp(window.x, -halfWidth, Screen.width - halfWidth);
+        window.y = Mathf.Clamp(window.y, -halfHeight, Screen.height - halfHeight);
     }
     static void DrawWindow(int windowID)
     {
